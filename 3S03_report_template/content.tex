@@ -1,53 +1,342 @@
 \section{Basic Deployment Pipeline - Modeling with Petri Nets}
-\subsection{a)} 
 
-I asked ChatGPT to specify three types of tests for the game described above.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Q1.png}
+    \caption{Petri net model of the deployment pipeline.}
+\end{figure}
 
-The specific prompt I used was:
+In the Petri net above, tokens represent either deployment batches or resource
+availability, depending on the place. Tokens in pipeline places represent
+deployment batches progressing through the system, while tokens in resource
+places represent the availability of shared resources.
 
-\begin{adjustwidth}{2em}{0pt}
-{
-Suppose I am developing an action-adventure game such that:
-a) players explore a post-apocalyptic version of McMaster University; b) up to eight players 
-may be accosted by zombies, mutated professors, angry Deans, killer squirrels, and more; c) 
-gameplay can be both competitive and cooperative; and d) the game will be released on the 
-PS5, Xbox Series X, Nintendo Switch and Sega Genesis (which is 16-bit and hasn't been 
-manufactured since 1997).
-
-Specify three types of tests for such a game.
-}
-\end{adjustwidth}
-
-The response I received was as follows:
-
-\begin{adjustwidth}{2em}{0pt}
-{
-
-For a game like this — especially one that spans \textbf{modern consoles and a 16-bit relic like the Sega Genesis} — testing needs to cover functionality, performance, and platform constraints very carefully.
-
-Here are \textbf{three distinct and appropriate types of testing}:
-
-1. Functional Testing (Gameplay \& Mechanics)
-
-\textbf{Purpose:} Ensure the game works according to design.
-
-This would verify:
-
+The places in the model are as follows:
 \begin{itemize}
-    \item Players can explore the post-apocalyptic McMaster campus without falling through geometry
-    \item Zombies, mutated professors, angry Deans, and killer squirrels spawn correctly
-    \item Combat, health, inventory, and abilities function as intended
-    \item Competitive and cooperative modes behave correctly
-    \item Up to eight players connect and interact properly
+    \item Submission: contains deployment batches that have entered the system
+    and are waiting to be staged.
+    \item Staging: contains batches currently waiting in the staging buffer.
+    \item Validation: contains a batch that is currently being validated.
+    \item Dispatch: contains a validated batch that is ready to be assigned to
+    a deployment worker.
+    \item Deployment1: contains a batch currently being deployed by worker 1.
+    \item Deployment2: contains a batch currently being deployed by worker 2.
+    \item Completion: contains batches that have finished deployment
+    successfully.
+    \item StagingBufferBatches: contains tokens representing free capacity in
+    the staging buffer. Since it initially contains three tokens, at most three
+    batches can be in Staging at once.
+    \item ValidationService: contains a token representing that the validation
+    service is available. Since it contains one token, only one batch can be
+    validated at a time.
+    \item DeploymentManager: contains a token representing that the deployment
+    manager is available. Since it contains one token, only one dispatch
+    decision can be made at a time.
+    \item Worker1: contains a token representing that deployment worker 1 is
+    available.
+    \item Worker2: contains a token representing that deployment worker 2 is
+    available.
 \end{itemize}
 
-}
-\end{adjustwidth}
+The transitions in the model are as follows:
+\begin{itemize}
+    \item submit: moves a batch from Submission to Staging. Consumes one
+    token from StagingBufferBatches, so a staging slot is used.
+    \item startValidation: moves a batch from Staging to Validation. Uses the 
+    ValidationService token and returns the StagingBufferBatches token, 
+    freeing a staging slot.
+    \item endValidation: moves a batch from Validation to Dispatch and returns
+    the ValidationService token, making the validation service available again.
+    \item startDeployment1: moves a batch from Dispatch to Deployment1. Uses both the DeploymentManager token and the Worker1 token. The
+    DeploymentManager token is returned immediately, since the manager is only
+    needed to assign the batch, while Worker1 remains unavailable until the
+    deployment completes.
+    \item endDeployment1: moves a batch from Deployment1 to Completion and
+    returns the Worker1 token, making worker 1 available again.
+    \item startDeployment2: Same as 1, but for worker 2.
+    \item endDeployment2: Same as 1, but for worker 2.
+\end{itemize}
 
-\section{Safety and other useful properties - Formalizing requirements }
+\section{Safety and other useful properties - Formalizing requirements}
+\subsection{Buffer Safety}
+
+\subsubsection*{i.}
+\(
+AG(Staging \leq 3)
+\)
+
+This query states that on all execution paths, the number of tokens in the 
+Staging place is always at most 3. This ensures the staging buffer
+capacity is never exceeded.
+
+\subsubsection*{ii.}
+\texttt{AG (Staging <= 3)}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.1.png}
+\end{figure}
+
+\subsubsection*{iii.}
+TAPAAL evaluates this query as TRUE. This means that in all reachable 
+markings, the number of tokens in Staging never exceeds three, so the 
+model correctly enforces the buffer capacity constraint.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.1 Result.png}
+\end{figure}
+
+\subsection{Resource Exclusivity}
+\subsubsection*{i.}
+\( AG(\text{Validation} \leq 1 \wedge \text{DeploymentManager} \leq 1) \)
+
+This query states that on all execution paths, the number of tokens in
+Validation and DeploymentManager never exceeds 1. This ensures that the validation service and deployment manager are never
+used by more than one batch at the same time.
+
+\subsubsection*{ii.}
+\texttt{AG (Validation <= 1 and DeploymentManager <= 1)}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.2.png}
+\end{figure}
+
+
+\subsubsection*{iii.}
+TAPAAL evaluates this query as TRUE. This means that, in all reachable markings, 
+neither the validation service nor
+the deployment manager is used by more than one batch simultaneously, so the model 
+correctly enforces mutual exclusion.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.2 Result.png}
+\end{figure}
+
+\subsection{Deadlock Possibility}
+\subsubsection*{i.}
+\(
+EF(\text{deadlock})
+\)
+
+This query checks whether there exists a reachable marking in which no
+transitions are enabled, indicating a deadlock.
+
+\subsubsection*{ii.}
+\texttt{EF deadlock}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.3.png}
+\end{figure}
+
+\subsubsection*{iii.}
+TAPAAL evaluates this query as TRUE. This means that there exists a
+reachable marking in which no transitions are enabled, so the
+system can deadlock. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.3 Result.png}
+\end{figure}
+
+\subsection{Pipeline Progress}
+
+\subsubsection*{i.}
+\(
+AG(Submission = 0 \lor AF(Completion \geq 1))
+\)
+
+This query states that in every reachable state, either there is no batch
+remaining in Submission, or a batch will eventually reach Completion. This ensures 
+that whenever a batch is present in Submission, eventually some batch 
+reaches Completion.
+
+\subsubsection*{ii.}
+\texttt{AG (Submission == 0 or AF (Completion >= 1))}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.4.png}
+\end{figure}
+
+\subsubsection*{iii.}
+TAPAAL evaluates this query as TRUE. This means that whenever a batch is still 
+present at Submission, the model guarantees that eventually some 
+batch will reach Completion.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 2.4 Result.png}
+\end{figure}
 
 \section{Critical updates - Working with priorities}
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Q3.png}
+    \caption{Petri net model of the extended deployment pipeline.}
+\end{figure}
+
+The Petri net from Q1 was extended in the following ways:
+
+\begin{itemize}
+    \item The original single waiting place was split into two distinct places 
+    representing regular and critical updates.
+    
+    \item The original assignment transition was replaced with two transitions: 
+    one for assigning regular updates and one for assigning critical updates.
+    
+    \item An inhibitor arc was added from the critical update waiting place to 
+    the regular assignment transition. This disables the assignment of 
+    regular updates whenever at least one critical update is present, 
+    enforcing the priority policy.
+
+    \item DeploymentManager manages both regular and critical updates.
+\end{itemize}
+
 \section{Formalizing Requirements}
 
+\subsection{Priority Enforcement}
+
+\subsubsection*{i.}
+\(
+AG(\neg(criticalDispatch \geq 1 \land DeploymentR1 = 0 \land DeploymentR2 = 0)\lor
+AX(DeploymentR1 = 0 \land DeploymentR2 = 0))
+\)
+
+This query states that whenever a critical update is waiting to be dispatched
+and no regular deployment is currently active, the next state cannot start
+deployment of a regular update. So, regular updates cannot begin
+deployment while a critical update is waiting.
+
+\subsubsection*{ii.}
+\texttt{AG (!(criticalDispatch >= 1 and DeploymentR1 == 0 and DeploymentR2 == 0) or AX (DeploymentR1 == 0 and DeploymentR2 == 0))}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 4.1.png}
+\end{figure}
+
+\subsubsection*{iii.}
+TAPAAL evaluates this query as TRUE. This means
+that the model correctly enforces priority by preventing regular 
+deployments from starting whenever a critical update is waiting. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 4.1 Result.png}
+\end{figure}
+
+\subsection{Critical Update Progress}
+\subsubsection*{i.}
+\(
+AG(\neg(criticalDispatch \geq 1)\lor AF(Completion \geq 1))
+\)
+
+This query states that on all execution paths, either no critical update
+is waiting to be dispatched, or eventually a deployment completes. This 
+ensures that whenever a critical update is waiting, eventually a 
+deployment completes.
+
+\subsubsection*{ii.}
+\texttt{AG (!(criticalDispatch >= 1) or AF (Completion >= 1))}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 4.2.png}
+\end{figure}
+
+\subsubsection*{iii.}
+TAPAAL failed to evaluate this query. I tried a few times but consistently ran out of memory.
+I also tried reducing the number of extra tokens to zero but it still failed 
+with the following error repeatedly after some time.
+
+Since the query could not be completed, we cannot conclude 
+whether critical updates are guaranteed to eventually complete. 
+However, given that there are no blocking conditions for critical
+updates in the model, it is expected that they do eventually progress 
+to completion.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 4.2 Result.png}
+\end{figure}
+
+\subsection{Regular Update Starvation}
+
+\subsubsection*{i.}
+\(
+EG(regularDispatch \geq 1)
+\)
+
+This query checks whether there exists an execution path along which a
+regular update remains waiting in the dispatch place indefinitely,
+indicating starvation.
+
+\subsubsection*{ii.}
+\texttt{EG (regularDispatch >= 1)}
+    
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 4.3.png}
+\end{figure}
+
+\subsubsection*{iii.}
+TAPAAL evaluates this query as TRUE. This means that there exists
+an execution in which a regular update remains waiting forever. Therefore,
+the model does exhibit starvation of regular updates, and all regular
+updates will not necessarily be eventually processed.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Query 4.3 Result.png}
+\end{figure}
+
 \section{Reflection}
+\begin{enumerate}
+
+    \item Verification could be useful in my future industry work when 
+    software has strong correctness requirements, especially in 
+    concurrent or safety-critical systems where errors such as deadlocks, 
+    starvation, or invalid 
+    states may be hard to detect through testing alone. This 
+    assignment showed me that verification and validation serve 
+    different purposes: verification aims to prove that specified 
+    properties hold over all possible executions, while validation 
+    checks selected executions and 
+    scenarios. In practice, I would primarily rely on validation (testing) 
+    in industry due to its scalability, relevance to end-users and business requirements,
+    and lower cost; however, I would use 
+    verification for safety-critical or highly concurrent systems 
+    where guarantees are required. Verification is more rigorous, 
+    but also more complex and resource-intensive.   
+
+    \item Tools such as TAPAAL are important for applying formal 
+    verification methods in practice. Without tool support, reasoning 
+    about all possible system states would be infeasible. The 
+    availability of these tools directly reduces the mathematical and 
+    computational burden on engineers. A good tool can make verification
+    more accessible and practical, resulting in wider adoption of formal
+    verification techniques in industry. 
+
+    \item Verification provides strong guarantees about system behavior 
+    by proving properties over all possible executions, while validation only increases confidence by sampling executions. This 
+    assignment emphasized how verification can detect issues (such as 
+    deadlocks or starvation) that may be difficult to observe through 
+    testing alone. The link between verification and validation is that they are 
+    complementary approaches: verification provides formal guarantees 
+    using a model, while validation checks the system's behavior 
+    in practice. Together, they provide stronger assurance of correctness 
+    than either approach alone.
+
+    \item The most challenging part of this assignment was formulating 
+    correct CTL queries to capture the intended system 
+    properties. Translating informal requirements into formal logic required 
+    careful reasoning about 
+    system states and execution paths.
+    Also, wrangling with 4.2 was a bit of a challenge, as it 
+    would repeatedly take several minutes to run and eventually error.
+\end{enumerate}
